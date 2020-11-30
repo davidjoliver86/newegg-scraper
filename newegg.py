@@ -1,6 +1,10 @@
 import html.parser
-import urllib3
+import urllib.request
+import logging
 from typing import Optional, List, Dict
+
+LOGGER = logging.getLogger()
+LOGGER.setLevel(logging.DEBUG)
 
 
 class NeweggParser(html.parser.HTMLParser):
@@ -9,7 +13,11 @@ class NeweggParser(html.parser.HTMLParser):
     # <div class="item-cell">
     _encountered_item: bool = False
 
-    _encountered_title: bool = True
+    # We set this flag to True if we're within an item cell and encounter the title.
+    # <div class="item-cell">
+    #   ...
+    #   <a class="item-title">
+    _encountered_title: bool = False
 
     # Tracking the depth of how many layers of tags we're currently in.
     # Specifically, once we hit an item cell, we want to know how deep we are, such that
@@ -48,8 +56,10 @@ class NeweggParser(html.parser.HTMLParser):
         if self._encountered_title and self._encountered_item:
             self._title = data
             self.items[data] = True
+            LOGGER.debug("Found product: %s", data)
         if data == 'OUT OF STOCK':
             self.items[self._title] = False
+            LOGGER.debug("Out of stock : %s", self._title)
 
     def handle_endtag(self, tag):
         # Always decrement depth.
@@ -66,9 +76,8 @@ class NeweggParser(html.parser.HTMLParser):
         """
         Fetch data from provided URL and start parsing.
         """
-        with urllib3.PoolManager() as http:
-            resp = http.request('GET', self._base_url)
-        self.feed(resp.data.decode('utf-8'))
+        with urllib.request.urlopen(self._base_url) as f:
+            self.feed(f.read().decode('utf-8'))
     
     def get_items_in_stock(self) -> List[str]:
         """
@@ -78,6 +87,11 @@ class NeweggParser(html.parser.HTMLParser):
 
 
 if __name__ == "__main__":
+    # Setup console logging if running interactively.
+    LOGGER.addHandler(logging.StreamHandler())
+
+    # Do the thing.
     parser = NeweggParser('https://www.newegg.com/p/pl?d=gtx+3070&N=100007709&isdeptsrh=1&PageSize=96')
     parser.fetch()
     print(parser.get_items_in_stock())
+
