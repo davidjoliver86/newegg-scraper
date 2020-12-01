@@ -1,3 +1,4 @@
 .terraform/
 newegg.zip
 tf.plan
+.vscode/
