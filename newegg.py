@@ -42,12 +42,12 @@ class NeweggParser(html.parser.HTMLParser):
         self._depth += 1
 
         # Did we hit an item?
-        if tag == 'div' and ('class', 'item-cell') in attrs:
+        if tag == "div" and ("class", "item-cell") in attrs:
             self._encountered_item = True
             self._item_depth = self._depth
 
         # Are we in an item-cell, and is this the element of the item's title?
-        if self._encountered_item and tag == 'a' and ('class', 'item-title') in attrs:
+        if self._encountered_item and tag == "a" and ("class", "item-title") in attrs:
             self._encountered_title = True
 
     def handle_data(self, data):
@@ -57,7 +57,7 @@ class NeweggParser(html.parser.HTMLParser):
             self._title = data
             self.items[data] = True
             LOGGER.debug("Found product: %s", data)
-        if data == 'OUT OF STOCK':
+        if data == "OUT OF STOCK":
             self.items[self._title] = False
             LOGGER.debug("Out of stock : %s", self._title)
 
@@ -77,8 +77,8 @@ class NeweggParser(html.parser.HTMLParser):
         Fetch data from provided URL and start parsing.
         """
         with urllib.request.urlopen(self._base_url) as f:
-            self.feed(f.read().decode('utf-8'))
-    
+            self.feed(f.read().decode("utf-8"))
+
     def get_items_in_stock(self) -> List[str]:
         """
         After parsing the page, return a list of items in stock.
@@ -86,12 +86,19 @@ class NeweggParser(html.parser.HTMLParser):
         return [item for item, avail in self.items.items() if avail]
 
 
+def lambda_handler(event, context):
+    parser = NeweggParser(event["url"])
+    parser.fetch()
+    print(parser.get_items_in_stock())
+
+
 if __name__ == "__main__":
     # Setup console logging if running interactively.
     LOGGER.addHandler(logging.StreamHandler())
 
     # Do the thing.
-    parser = NeweggParser('https://www.newegg.com/p/pl?d=gtx+3070&N=100007709&isdeptsrh=1&PageSize=96')
+    parser = NeweggParser(
+        "https://www.newegg.com/p/pl?d=gtx+3070&N=100007709&isdeptsrh=1&PageSize=96"
+    )
     parser.fetch()
     print(parser.get_items_in_stock())
-
