@@ -2,4 +2,4 @@
 newegg.zip
 tf.plan
 .vscode/
-*.tfstate
+*.tfstate*

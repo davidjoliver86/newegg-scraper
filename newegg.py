@@ -1,10 +1,13 @@
 import html.parser
 import urllib.request
 import logging
+import json
 from typing import Optional, List, Dict
 
+import boto3
+
 LOGGER = logging.getLogger()
-LOGGER.setLevel(logging.DEBUG)
+LOGGER.setLevel(logging.INFO)
 
 
 class NeweggParser(html.parser.HTMLParser):
@@ -89,7 +92,18 @@ class NeweggParser(html.parser.HTMLParser):
 def lambda_handler(event, context):
     parser = NeweggParser(event["url"])
     parser.fetch()
-    print(parser.get_items_in_stock())
+    items_in_stock = parser.get_items_in_stock()
+
+    # Continue to print it to the logs.
+    LOGGER.info(items_in_stock)
+
+    # Send an SNS message too.
+    sns = boto3.client("sns", region_name="us-east-1")
+    sns.publish(
+        TopicArn=event["topicArn"],
+        Subject="Newegg Stock Check Alert",
+        Message=json.dumps(items_in_stock),
+    )
 
 
 if __name__ == "__main__":
