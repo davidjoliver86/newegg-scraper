@@ -20,5 +20,5 @@ variable "url" {
 
 variable "is_enabled" {
   type    = bool
-  default = false
+  default = true
 }

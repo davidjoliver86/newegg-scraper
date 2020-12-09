@@ -2,12 +2,22 @@ import html.parser
 import urllib.request
 import logging
 import json
-from typing import Optional, List, Dict
+import io
+from enum import Enum, auto
+from typing import Optional, List, Dict, Collection, Tuple
 
 import boto3
+from botocore import exceptions
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
+
+
+class Status(Enum):
+    NO_CHANGE = auto()
+    INITIALIZED = auto()
+    ITEMS_IN_STOCK = auto()
+    ITEMS_GONE = auto()
 
 
 class NeweggParser(html.parser.HTMLParser):
@@ -82,28 +92,107 @@ class NeweggParser(html.parser.HTMLParser):
         with urllib.request.urlopen(self._base_url) as f:
             self.feed(f.read().decode("utf-8"))
 
-    def get_items_in_stock(self) -> List[str]:
+    def get_items(self) -> Dict[str, bool]:
         """
-        After parsing the page, return a list of items in stock.
+        After parsing the page, return a dict of the items and their stock status.
         """
-        return [item for item, avail in self.items.items() if avail]
+        return self.items
+
+
+def compare_to_s3(
+    current_items: Dict[str, bool], s3_bucket: str, s3_obj: str
+) -> Tuple[Status, Collection[str]]:
+    """
+    Diff the results against the previous state in S3, then update S3.
+    """
+    s3 = boto3.resource("s3")
+    status = Status.NO_CHANGE
+
+    # Retrieve existing dict, or instantiate an empty one if it doesn't exist in S3.
+    obj = s3.Bucket(s3_bucket).Object(s3_obj)
+    try:
+        existing_items = json.load(obj.get()["Body"])
+    except exceptions.ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            existing_items = {}
+            status = Status.INITIALIZED
+        else:
+            raise e
+
+    # If our items haven't changed, just exit. A PutObject operation is more costly.
+    if current_items == existing_items:
+        return (status, set())
+
+    # Are there new in-stock items compared to last time?
+    in_stock_current = set(
+        [item for item, in_stock in current_items.items() if in_stock]
+    )
+    in_stock_previous = set(
+        [item for item, in_stock in existing_items.items() if in_stock]
+    )
+
+    # Need to update our object now.
+    with io.BytesIO(json.dumps(current_items).encode("utf-8")) as fp:
+        obj.upload_fileobj(fp)
+
+    # Return a set of any new items.
+    diff = in_stock_current - in_stock_previous
+    if diff and (status != Status.INITIALIZED):
+        status = Status.ITEMS_IN_STOCK
+    if (not diff) and in_stock_previous:
+        status = Status.ITEMS_GONE
+    return (status, diff)
+
+
+def send_init_message(
+    sns, topic_arn: str, checker_name: str, stock_changes: Collection[str]
+):
+    stock_changes_lines = "\n".join(stock_changes)
+    subject = f"[{checker_name}] - First run successful"
+    message = f"Stock checker operational. Items in stock:\n{stock_changes_lines}"
+    sns.publish(TopicArn=topic_arn, Message=message, Subject=subject)
+
+
+def send_in_stock_message(
+    sns, topic_arn: str, checker_name: str, stock_changes: Collection[str]
+):
+    stock_changes_lines = "\n".join(stock_changes)
+    subject = f"[{checker_name}] - New items in stock!"
+    message = f"Hurry up! New items in stock:\n{stock_changes_lines}"
+    sns.publish(TopicArn=topic_arn, Message=message, Subject=subject)
+
+
+def send_gone_message(sns, topic_arn: str, checker_name: str):
+    subject = f"[{checker_name}] - All items gone!"
+    message = f"Too slow..."
+    sns.publish(TopicArn=topic_arn, Message=message, Subject=subject)
 
 
 def lambda_handler(event, context):
     parser = NeweggParser(event["url"])
     parser.fetch()
-    items_in_stock = parser.get_items_in_stock()
+    items = parser.get_items()
 
-    # Continue to print it to the logs.
-    LOGGER.info(items_in_stock)
+    # Continue to print in-stock items to the logs.
+    for item, in_stock in items.items():
+        if in_stock:
+            LOGGER.info(item)
 
-    # Send an SNS message too.
+    # Compare to S3 and update.
+    status, stock_changes = compare_to_s3(items, event["s3Bucket"], event["s3Object"])
+
+    # Return immediately if no change.
+    if status == Status.NO_CHANGE:
+        return
+
+    # Otherwise send SNS message.
     sns = boto3.client("sns", region_name="us-east-1")
-    sns.publish(
-        TopicArn=event["topicArn"],
-        Subject="Newegg Stock Check Alert",
-        Message=json.dumps(items_in_stock),
-    )
+    if status == Status.INITIALIZED:
+        send_init_message(sns, event["topicArn"], event["s3Object"], stock_changes)
+    if status == Status.ITEMS_IN_STOCK:
+        send_in_stock_message(sns, event["topicArn"], event["s3Object"], stock_changes)
+    if status == Status.ITEMS_GONE:
+        send_gone_message(sns, event["topicArn"], event["s3Object"])
 
 
 if __name__ == "__main__":
@@ -111,8 +200,10 @@ if __name__ == "__main__":
     LOGGER.addHandler(logging.StreamHandler())
 
     # Do the thing.
-    parser = NeweggParser(
-        "https://www.newegg.com/p/pl?d=gtx+3070&N=100007709&isdeptsrh=1&PageSize=96"
-    )
-    parser.fetch()
-    print(parser.get_items_in_stock())
+    event = {
+        "url": "https://www.newegg.com/p/pl?d=gtx+3070&N=100007709&isdeptsrh=1&PageSize=96",
+        "topicArn": "arn:aws:sns:us-east-1:255595642331:newegg-stock-checker-20201204064825927800000001",
+        "s3Bucket": "io-github-davidjoliver86-newegg-20201207070747933700000001",
+        "s3Object": "derp",
+    }
+    lambda_handler(event, None)

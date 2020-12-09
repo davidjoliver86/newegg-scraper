@@ -39,3 +39,30 @@ resource "aws_iam_policy_attachment" "publish_to_sns" {
     aws_iam_role.newegg_stock_checker.id
   ]
 }
+
+# Allow S3 access
+
+data "aws_iam_policy_document" "s3_access" {
+  statement {
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${aws_s3_bucket.newegg.arn}/*"]
+  }
+
+  statement {
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.newegg.arn]
+  }
+}
+
+resource "aws_iam_policy" "s3_access" {
+  name_prefix = "s3-access-"
+  policy      = data.aws_iam_policy_document.s3_access.json
+}
+
+resource "aws_iam_policy_attachment" "s3_access" {
+  name       = "s3-access"
+  policy_arn = aws_iam_policy.s3_access.arn
+  roles = [
+    aws_iam_role.newegg_stock_checker.id
+  ]
+}
