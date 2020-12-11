@@ -6,14 +6,15 @@ resource "aws_cloudwatch_event_rule" "every_minute" {
 }
 
 resource "aws_cloudwatch_event_target" "newegg_stock_checker" {
-  rule = aws_cloudwatch_event_rule.every_minute.id
-  arn  = aws_lambda_function.newegg_stock_checker.arn
+  for_each = var.checkers
+  rule     = aws_cloudwatch_event_rule.every_minute.id
+  arn      = aws_lambda_function.newegg_stock_checker.arn
 
   input = jsonencode({
-    url      = var.url
+    url      = each.value
     topicArn = aws_sns_topic.newegg_stock_checker.arn
     s3Bucket = aws_s3_bucket.newegg.id
-    s3Object = "gtx3070"
+    s3Object = each.key
   })
 }
 

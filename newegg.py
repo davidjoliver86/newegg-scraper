@@ -154,11 +154,11 @@ def send_init_message(
 
 
 def send_in_stock_message(
-    sns, topic_arn: str, checker_name: str, stock_changes: Collection[str]
+    sns, topic_arn: str, url: str, checker_name: str, stock_changes: Collection[str]
 ):
     stock_changes_lines = "\n".join(stock_changes)
     subject = f"[{checker_name}] - New items in stock!"
-    message = f"Hurry up! New items in stock:\n{stock_changes_lines}"
+    message = f"Hurry up! New items in stock:\n{stock_changes_lines}\n{url}"
     sns.publish(TopicArn=topic_arn, Message=message, Subject=subject)
 
 
@@ -190,20 +190,8 @@ def lambda_handler(event, context):
     if status == Status.INITIALIZED:
         send_init_message(sns, event["topicArn"], event["s3Object"], stock_changes)
     if status == Status.ITEMS_IN_STOCK:
-        send_in_stock_message(sns, event["topicArn"], event["s3Object"], stock_changes)
+        send_in_stock_message(
+            sns, event["topicArn"], event["url"], event["s3Object"], stock_changes
+        )
     if status == Status.ITEMS_GONE:
         send_gone_message(sns, event["topicArn"], event["s3Object"])
-
-
-if __name__ == "__main__":
-    # Setup console logging if running interactively.
-    LOGGER.addHandler(logging.StreamHandler())
-
-    # Do the thing.
-    event = {
-        "url": "https://www.newegg.com/p/pl?d=gtx+3070&N=100007709&isdeptsrh=1&PageSize=96",
-        "topicArn": "arn:aws:sns:us-east-1:255595642331:newegg-stock-checker-20201204064825927800000001",
-        "s3Bucket": "io-github-davidjoliver86-newegg-20201207070747933700000001",
-        "s3Object": "derp",
-    }
-    lambda_handler(event, None)

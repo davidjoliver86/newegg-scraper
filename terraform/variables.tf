@@ -13,9 +13,12 @@ variable "function_zipfile_name" {
   default = "newegg.zip"
 }
 
-variable "url" {
-  type    = string
-  default = "https://www.newegg.com/p/pl?d=gtx+3070&N=100007709&isdeptsrh=1&PageSize=96"
+variable "checkers" {
+  type        = map(string)
+  description = "URLs for stock checkers; key is used as the scraper name and S3 object"
+  default = {
+    radeon6800 = "https://www.newegg.com/p/pl?d=radeon+6800&N=100007709&isdeptsrh=1&PageSize=96"
+  }
 }
 
 variable "is_enabled" {
